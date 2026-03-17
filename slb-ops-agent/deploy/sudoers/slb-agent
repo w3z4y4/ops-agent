@@ -1,0 +1,36 @@
+# /etc/sudoers.d/slb-agent
+# 精细化授权：仅允许 slb-agent 用户对白名单服务执行 systemctl 操作
+# 禁止使用 sudo su 或无限制的 sudo
+#
+# 部署命令：
+#   sudo install -m 0440 deploy/sudoers/slb-agent /etc/sudoers.d/slb-agent
+#   sudo visudo -c  # 验证语法
+
+Defaults:slb-agent !requiretty
+Defaults:slb-agent !env_reset
+
+# ── systemctl 服务管控（白名单服务）────────────────────────────────────────
+slb-agent ALL=(root) NOPASSWD: \
+    /usr/bin/systemctl start    haproxy.service, \
+    /usr/bin/systemctl stop     haproxy.service, \
+    /usr/bin/systemctl restart  haproxy.service, \
+    /usr/bin/systemctl reload   haproxy.service, \
+    /usr/bin/systemctl enable   haproxy.service, \
+    /usr/bin/systemctl disable  haproxy.service, \
+    /usr/bin/systemctl start    confd.service, \
+    /usr/bin/systemctl stop     confd.service, \
+    /usr/bin/systemctl restart  confd.service, \
+    /usr/bin/systemctl reload   confd.service, \
+    /usr/bin/systemctl enable   confd.service, \
+    /usr/bin/systemctl disable  confd.service, \
+    /usr/bin/systemctl start    node-exporter.service, \
+    /usr/bin/systemctl stop     node-exporter.service, \
+    /usr/bin/systemctl restart  node-exporter.service, \
+    /usr/bin/systemctl enable   node-exporter.service, \
+    /usr/bin/systemctl disable  node-exporter.service, \
+    /usr/bin/systemctl restart  slb-ops-agent.service
+
+# ── 明确禁止 ────────────────────────────────────────────────────────────────
+# （sudoers 默认拒绝未列出的命令，此处注释说明意图）
+# 禁止：sudo su, sudo -s, sudo bash 等提权操作
+# 禁止：操作任何未列出的 systemd 单元

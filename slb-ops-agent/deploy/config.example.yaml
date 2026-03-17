@@ -1,0 +1,49 @@
+# /etc/slb-agent/config.yaml
+# SLB-Ops-Agent 配置文件示例
+
+agent:
+  data_dir: /opt/slb-agent/data
+  bin_dir:  /opt/slb-agent/bin
+
+grpc:
+  listen_addr:      "0.0.0.0:9443"
+  max_recv_msg_size: 67108864   # 64MB
+  max_send_msg_size: 67108864
+
+tls:
+  # Agent 自身证书（同时用于 server 端和主动连接控制台的 client 端）
+  cert_file:    /etc/slb-agent/tls/agent.crt
+  key_file:     /etc/slb-agent/tls/agent.key
+  # 验证控制台证书的 CA
+  ca_cert_file: /etc/slb-agent/tls/ca.crt
+
+acl:
+  # 留空则仅依赖 mTLS，不做 IP 限制
+  allowed_cidrs:
+    - "10.0.1.0/24"    # 管理控制台网段
+    - "192.168.10.5/32" # 单个管理节点
+
+logging:
+  level:      info
+  audit_file: /var/log/slb-agent/audit.log
+  app_file:   ""   # 留空则输出到 stdout，由 systemd journal 接管
+
+health:
+  check_interval:       15s
+  haproxy_config_file:  /etc/haproxy/haproxy.cfg
+  haproxy_stats_socket: /var/run/haproxy/admin.sock
+  node_exporter_port:   9100
+  confd_port:           0   # confd 无 HTTP 端口时设为 0，仅检查进程
+
+upgrade:
+  validate_timeout:    180s
+  rollback_state_file: /opt/slb-agent/data/rollback_target.txt
+  watchdog_script:     /opt/slb-agent/bin/watchdog.sh
+
+services:
+  # 服务操控白名单（与代码硬编码兜底值一致）
+  allowed_services:
+    - haproxy.service
+    - confd.service
+    - node-exporter.service
+    - slb-ops-agent.service

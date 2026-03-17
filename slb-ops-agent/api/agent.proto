@@ -1,0 +1,179 @@
+syntax = "proto3";
+
+package agent;
+
+option go_package = "github.com/yourorg/slb-ops-agent/pkg/proto";
+
+// ─────────────────────────────────────────────
+//  AgentService — 核心 gRPC 服务定义
+// ─────────────────────────────────────────────
+service AgentService {
+  // 同步执行命令，返回结果
+  rpc ExecuteCommand(CommandRequest) returns (CommandResponse);
+
+  // 异步执行命令，立即返回 task_id，后续通过 GetTaskResult 拉取
+  rpc ExecuteCommandAsync(CommandRequest) returns (AsyncCommandResponse);
+
+  // 查询异步任务结果
+  rpc GetTaskResult(TaskResultRequest) returns (CommandResponse);
+
+  // 文件上传（控制台 → Agent），流式分块
+  rpc UploadFile(stream FileChunk) returns (TransferStatus);
+
+  // 文件下载（Agent → 控制台），流式分块
+  rpc DownloadFile(DownloadRequest) returns (stream FileChunk);
+
+  // systemd 服务管控
+  rpc ManageService(ServiceRequest) returns (ServiceResponse);
+
+  // 健康状态拉取
+  rpc GetHealthStatus(HealthRequest) returns (HealthResponse);
+
+  // Agent 自身升级
+  rpc UpgradeAgent(UpgradeRequest) returns (UpgradeResponse);
+
+  // 心跳（升级后握手验证使用）
+  rpc Heartbeat(HeartbeatRequest) returns (HeartbeatResponse);
+}
+
+// ─────────────────────────────────────────────
+//  Command Executor
+// ─────────────────────────────────────────────
+message CommandRequest {
+  string              command     = 1; // 可执行文件名，如 "haproxy"
+  repeated string     args        = 2; // 参数列表
+  int32               timeout_sec = 3; // 超时秒数，0 表示使用默认值(30s)
+  map<string, string> env         = 4; // 额外环境变量
+  bool                async       = 5; // true=异步执行
+}
+
+message CommandResponse {
+  string task_id   = 1; // 异步任务 ID（同步时为空）
+  string output    = 2; // stdout + stderr 合并
+  int32  exit_code = 3;
+  string error     = 4; // 框架层面错误（非命令退出码）
+  int64  duration_ms = 5;
+}
+
+message AsyncCommandResponse {
+  string task_id = 1;
+  string error   = 2;
+}
+
+message TaskResultRequest {
+  string task_id = 1;
+}
+
+// ─────────────────────────────────────────────
+//  File Manager
+// ─────────────────────────────────────────────
+message FileChunk {
+  string chunk_id      = 1; // "transfer_id:seq_num"
+  string transfer_id   = 2;
+  string dest_path     = 3; // 目标绝对路径（首个 chunk 必填）
+  bytes  data          = 4; // 分块数据，建议 ≤ 1MB
+  bool   is_last_chunk = 5;
+  string sha256_total  = 6; // 整体文件 SHA256（最后 chunk 填写）
+  int32  uid           = 7; // 写入后 chown uid（-1 表示不修改）
+  int32  gid           = 8; // 写入后 chown gid
+  uint32 mode          = 9; // 写入后 chmod，如 0644
+}
+
+message TransferStatus {
+  bool   success     = 1;
+  string transfer_id = 2;
+  string dest_path   = 3;
+  string error       = 4;
+}
+
+message DownloadRequest {
+  string src_path  = 1;
+  int32  chunk_size = 2; // 字节，默认 512KB
+}
+
+// ─────────────────────────────────────────────
+//  Service Controller
+// ─────────────────────────────────────────────
+enum ServiceAction {
+  SERVICE_ACTION_UNSPECIFIED = 0;
+  START    = 1;
+  STOP     = 2;
+  RESTART  = 3;
+  RELOAD   = 4;
+  STATUS   = 5;
+  ENABLE   = 6;
+  DISABLE  = 7;
+}
+
+message ServiceRequest {
+  string        service_name = 1; // 必须在白名单内
+  ServiceAction action       = 2;
+}
+
+message ServiceResponse {
+  bool   success      = 1;
+  string service_name = 2;
+  string active_state = 3; // active / inactive / failed
+  string sub_state    = 4; // running / dead / ...
+  string output       = 5; // systemctl 命令输出
+  string error        = 6;
+}
+
+// ─────────────────────────────────────────────
+//  Health Probe
+// ─────────────────────────────────────────────
+message HealthRequest {}
+
+message HealthResponse {
+  int64       timestamp    = 1; // Unix 秒
+  AgentHealth agent        = 2;
+  ServiceHealth haproxy    = 3;
+  ServiceHealth confd      = 4;
+  ServiceHealth node_exporter = 5;
+}
+
+message AgentHealth {
+  uint64 memory_bytes    = 1;
+  double cpu_percent     = 2;
+  int32  goroutine_count = 3;
+  int64  uptime_sec      = 4;
+  string version         = 5;
+}
+
+message ServiceHealth {
+  string name         = 1;
+  bool   process_alive = 2;
+  bool   port_open    = 3;
+  int32  listen_port  = 4;
+  string active_state = 5;
+  string config_check_output = 6; // haproxy -c 输出（仅 HAProxy）
+  bool   config_valid = 7;
+}
+
+// ─────────────────────────────────────────────
+//  Upgrade & Watchdog
+// ─────────────────────────────────────────────
+message UpgradeRequest {
+  string download_url    = 1;
+  string sha256_hash     = 2;
+  string target_version  = 3;
+  int32  validate_timeout_sec = 4; // 新版本握手超时，默认 180s
+}
+
+message UpgradeResponse {
+  bool   accepted = 1; // Agent 已接受升级指令
+  string error    = 2;
+}
+
+// ─────────────────────────────────────────────
+//  Heartbeat
+// ─────────────────────────────────────────────
+message HeartbeatRequest {
+  string agent_version = 1;
+  int64  timestamp     = 2;
+}
+
+message HeartbeatResponse {
+  bool   ok        = 1;
+  int64  timestamp = 2;
+}

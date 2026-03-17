@@ -1,0 +1,53 @@
+[Unit]
+Description=SLB Operations Agent
+Documentation=https://github.com/yourorg/slb-ops-agent
+# 确保在网络就绪、HAProxy 启动后再拉起
+After=network-online.target haproxy.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+
+# ── 运行账户（最小权限）─────────────────────────────────────────────────────
+User=slb-agent
+Group=slb-agent
+
+# ── 可执行文件（通过软链接指向当前版本）──────────────────────────────────────
+ExecStart=/opt/slb-agent/bin/agent_current \
+    -config /etc/slb-agent/config.yaml
+
+# ── 优雅退出 ────────────────────────────────────────────────────────────────
+KillMode=mixed
+KillSignal=SIGTERM
+TimeoutStopSec=30
+
+# ── 自动重启 ────────────────────────────────────────────────────────────────
+Restart=always
+RestartSec=5
+
+# ── 资源限制 ────────────────────────────────────────────────────────────────
+# 内存硬限制 60MB（含内核内存，稳态 < 30MB）
+MemoryMax=60M
+# CPU 配额（防止突发抢占 HAProxy）
+CPUQuota=10%
+
+# ── 安全加固 ────────────────────────────────────────────────────────────────
+# 禁止获取新权限
+NoNewPrivileges=true
+# 只读挂载 /usr /boot /etc
+ProtectSystem=full
+# 禁止访问 /home
+ProtectHome=true
+# 私有 /tmp
+PrivateTmp=true
+# 限制可写路径（证书目录只读，数据/日志可写）
+ReadOnlyPaths=/etc/slb-agent /etc/pki /etc/ssl
+ReadWritePaths=/opt/slb-agent/data /var/log/slb-agent
+
+# ── 日志 ─────────────────────────────────────────────────────────────────────
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=slb-ops-agent
+
+[Install]
+WantedBy=multi-user.target
